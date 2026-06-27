@@ -95,7 +95,25 @@ class Bot
 
         // Gabung text
         $parts = array_map(fn($b) => $b['summary'], $buffer);
-        $this->handleText($phone, implode("\n", $parts));
+        $combined = implode("\n", $parts);
+
+        // Cek apakah mengandung Google Maps URL
+        if ($this->geocoder) {
+            $mapsUrl = $this->geocoder->containsGoogleMapsUrl($combined);
+            if ($mapsUrl) {
+                $coords = $this->geocoder->extractFromGoogleMaps($mapsUrl);
+                if ($coords) {
+                    $locMsg = "📍 *Link Google Maps* — dicek dulu ya kaa...";
+                    $this->sendText($phone, $locMsg);
+                    $this->addHistory($phone, 'bot', $locMsg);
+                    $locData = ['degreesLatitude' => $coords['lat'], 'degreesLongitude' => $coords['lng']];
+                    $this->handleLocation($phone, $locData);
+                    return;
+                }
+            }
+        }
+
+        $this->handleText($phone, $combined);
     }
 
     /**

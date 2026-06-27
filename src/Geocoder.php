@@ -136,4 +136,50 @@ class Geocoder
         $log = DATA_DIR . '/geocode_error.log';
         file_put_contents($log, date('c') . ' ' . $msg . "\n", FILE_APPEND);
     }
+
+    // ─── Google Maps URL Parser ───
+
+    /**
+     * Extract coordinates from Google Maps URL
+     */
+    public function extractFromGoogleMaps(string $url): ?array
+    {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            CURLOPT_HEADER => true,
+            CURLOPT_NOBODY => true,
+        ]);
+        $response = curl_exec($ch);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        if (!$redirectUrl) return null;
+
+        // @lat,lng or @lat,lng,zoom
+        if (preg_match('/@([\d\.\-]+),([\d\.\-]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
+        }
+        // ?q=lat,lng or ?ll=lat,lng
+        if (preg_match('/[?&](?:q|ll)=([\d\.\-]+),([\d\.\-]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
+        }
+        return null;
+    }
+
+    /**
+     * Cek apakah teks mengandung Google Maps URL
+     */
+    public function containsGoogleMapsUrl(string $text): ?string
+    {
+        if (preg_match('/https?:\/\/(?:maps\.google\.[a-z]+\/|maps\.app\.goo\.gl\/|goo\.gl\/maps\/)[^\s]+/', $text, $m)) {
+            return $m[0];
+        }
+        return null;
+    }
 }
