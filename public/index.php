@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/WuzAPI.php';
 require_once __DIR__ . '/../src/StateManager.php';
 require_once __DIR__ . '/../src/CoverageChecker.php';
 require_once __DIR__ . '/../src/AIClient.php';
+require_once __DIR__ . '/../src/Geocoder.php';
 require_once __DIR__ . '/../src/Bot.php';
 
 // Hanya terima POST
@@ -60,7 +61,8 @@ try {
     $state = new StateManager(CONVERSATIONS_DIR);
     $coverage = new CoverageChecker(COVERAGE_FILE);
     $ai = new AIClient();
-    $bot = new Bot($wuzapi, $state, $coverage, $ai);
+    $geocoder = new Geocoder();
+    $bot = new Bot($wuzapi, $state, $coverage, $ai, $geocoder);
 
     // Proses pesan
     $bot->handle($event);

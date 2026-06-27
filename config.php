@@ -35,5 +35,5 @@ define('PAKET', [
 define('AI_ENDPOINT', 'https://opencode.ai/zen/go/v1/chat/completions');
 define('AI_API_KEY', 'sk-tKg1Ke2EagIVgtaGWDYFuMHmnAFZlTREKTvQWAD7ffMKioDrBpU5cgCR8oBDF1K5');
 define('AI_MODEL', 'deepseek-v4-flash');
-define('AI_TIMEOUT', 60); // detik
-define('AI_MAX_TOKENS', 5000); // max tokens termasuk reasoning
+define('AI_TIMEOUT', 120); // detik
+define('AI_MAX_TOKENS', 10000); // max tokens termasuk reasoning

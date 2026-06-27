@@ -8,15 +8,17 @@ class Bot
     private StateManager $state;
     private CoverageChecker $coverage;
     private ?AIClient $ai;
+    private ?Geocoder $geocoder;
 
     private const MAX_HISTORY = 6;
 
-    public function __construct(WuzAPI $wuzapi, StateManager $state, CoverageChecker $coverage, ?AIClient $ai = null)
+    public function __construct(WuzAPI $wuzapi, StateManager $state, CoverageChecker $coverage, ?AIClient $ai = null, ?Geocoder $geocoder = null)
     {
         $this->wuzapi = $wuzapi;
         $this->state = $state;
         $this->coverage = $coverage;
         $this->ai = $ai;
+        $this->geocoder = $geocoder;
     }
 
     /**
@@ -38,8 +40,9 @@ class Bot
         if ($phone !== '628117774884') return;
 
         $message = $event['Message'] ?? [];
+        $mediaType = $info['MediaType'] ?? '';
 
-        if ($messageType === 'location' && isset($message['locationMessage'])) {
+        if ($messageType === 'location' || $mediaType === 'location' || ($messageType === 'media' && isset($message['locationMessage']))) {
             $this->handleLocation($phone, $message['locationMessage']);
         } elseif ($messageType === 'text' || $messageType === '') {
             $text = $this->getText($message);
@@ -60,15 +63,32 @@ class Bot
         // Simpan pesan user ke history
         $this->addHistory($phone, 'user', $text);
 
+        // Jika di state awaiting_location, coba geocode dulu sebelum AI
+        if ($currentState === STATE_AWAITING_LOCATION && $this->geocoder) {
+            $coords = $this->geocoder->geocode($text);
+            if ($coords !== null) {
+                $this->processGeocodedAddress($phone, $text, $coords);
+                return;
+            }
+        }
+
         // Coba AI dulu
         if ($this->ai) {
             $aiResult = $this->generateWithAI($phone, $text, $userState);
             if ($aiResult !== null) {
-                // Simpan response AI ke history
+                // Jika AI intent cek_lokasi, coba geocode dulu sebelum response
+                if ($aiResult['intent'] === 'cek_lokasi' && $this->geocoder) {
+                    $coords = $this->geocoder->geocode($text);
+                    if ($coords !== null) {
+                        // Geocode berhasil, langsung cek coverage — skip AI response
+                        $this->processGeocodedAddress($phone, $text, $coords);
+                        return;
+                    }
+                }
+
+                // Kirim AI response normal
                 $this->addHistory($phone, 'bot', $aiResult['response']);
-                // Kirim response
                 $this->sendText($phone, $aiResult['response']);
-                // Update state berdasarkan intent
                 $this->applyIntent($phone, $aiResult['intent'], $currentState);
                 return;
             }
@@ -76,6 +96,24 @@ class Bot
 
         // Fallback: rule-based existing
         $this->handleTextFallback($phone, $text, $userState);
+    }
+
+    /**
+     * Proses alamat yang berhasil di-geocode
+     */
+    private function processGeocodedAddress(string $phone, string $text, array $coords): void
+    {
+        $msg = "📍 *Alamat:* {$text}\n\n"
+            . "👉 *Sedang mengecek ketersediaan LIGAT* di lokasi tersebut...";
+        $this->sendText($phone, $msg);
+        $this->addHistory($phone, 'bot', $msg);
+
+        // Buat virtual location data seperti dari share location
+        $locationData = [
+            'degreesLatitude' => $coords['lat'],
+            'degreesLongitude' => $coords['lng'],
+        ];
+        $this->handleLocation($phone, $locationData);
     }
 
     /**
@@ -170,7 +208,18 @@ class Bot
                 break;
 
             case 'awaiting_location':
-                $this->sendText($phone, "Silakan *share lokasi* kamu dulu ya agar kami bisa cek ketersediaan layanan LIGAT di daerah kamu.\n\nCaranya: klik ikon *attach* ➔ *Location* ➔ kirim lokasi kamu.");
+                // Fallback: coba geocode jika ada
+                if ($this->geocoder) {
+                    $coords = $this->geocoder->geocode($text);
+                    if ($coords !== null) {
+                        $msg = "📍 *Alamat:* {$text}\n👉 Sedang dicek...";
+                        $this->sendText($phone, $msg);
+                        $locData = ['degreesLatitude' => $coords['lat'], 'degreesLongitude' => $coords['lng']];
+                        $this->handleLocation($phone, $locData);
+                        break;
+                    }
+                }
+                $this->sendText($phone, "Silakan *share lokasi* kamu dulu ya agar kami bisa cek ketersediaan layanan LIGAT di daerah kamu.\n\nAtau ketik nama daerah/perumahan kamu.");
                 break;
 
             case 'covered':
