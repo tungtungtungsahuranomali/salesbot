@@ -187,6 +187,8 @@ class Bot
 
         if ($msgType === 'text' || $msgType === '') {
             $summary = $this->getText($message) ?? '';
+        } elseif ($msgType === 'media' && $mediaType === 'url') {
+            $summary = $message['extendedTextMessage']['text'] ?? '';
         } elseif ($mediaType === 'location' || isset($message['locationMessage'])) {
             $loc = $message['locationMessage'] ?? [];
             $summary = "[Lokasi] {$loc['degreesLatitude']},{$loc['degreesLongitude']}";
