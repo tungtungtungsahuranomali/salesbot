@@ -169,6 +169,31 @@ class Geocoder
         if (preg_match('/[?&](?:q|ll)=([\d\.\-]+),([\d\.\-]+)/', $redirectUrl, $m)) {
             return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
         }
+        // Format: /place/.../data=... (extract place name and geocode)
+        if (preg_match('/\/place\/([^\/]+)/', $redirectUrl, $m)) {
+            $placeName = urldecode(str_replace(['+', '%20'], ' ', $m[1]));
+            // Ambil bagian yang lebih sederhana: setelah koma ke-2 atau ke-3
+            $parts = array_map('trim', explode(',', $placeName));
+            $parts = array_filter($parts, fn($p) => !preg_match('/^\d{5}$/', $p) && !preg_match('/^data=/i', $p));
+            $parts = array_values($parts);
+            // Coba kombinasi: bagian terakhir yang masuk akal
+            $queries = [
+                implode(', ', array_slice($parts, -3)), // Kec. Sekupang, Kota Batam
+                implode(', ', array_slice($parts, -2)), // Kota Batam
+            ];
+            foreach ($queries as $q) {
+                if (preg_match('/batam|sekupang|nongsa|lubuk|bengkong|seibeduk|batuampar|galang|bulang|belakangpadang/i', $q)) {
+                    $result = $this->geocode($q);
+                    if ($result) return $result;
+                }
+            }
+            // Fallback: ambil 2 bagian terakhir yang mengandung lokasi
+            for ($i = count($parts) - 1; $i >= 0; $i--) {
+                $q = $parts[$i] . ', Batam';
+                $result = $this->geocode($q);
+                if ($result) return $result;
+            }
+        }
         return null;
     }
 
