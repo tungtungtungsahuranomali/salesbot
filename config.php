@@ -40,3 +40,6 @@ define('AI_MAX_TOKENS', 10000); // max tokens termasuk reasoning
 
 // Form registrasi
 define('REG_FORM', "Untuk registrasi silahkan isi data di bawah ini ya ka🙏\nNama :\nNik :\nTTL :\nAlamat :\nEmail :\nNo. wa 1 :\nNo. wa 2 :\nPaket :\ntanggal Pasang :\n✅ Sharelok\n✅ Foto Rumah\n✅ Foto KTP\n\nDengan mengisi data diri diatas sama dengan menyetujui S&K yang berlaku :\n1. Harga Paket flat setiap bulannya, pembayaran wifi per tgl 1 setiap bulan\n2. Kontrak berlangganan minimal 1 tahun\n3. Pinalty berhenti berlangganan sebelum 1 tahun sebesar Rp.1.000.000\n4. Pelanggan berhak putus sebelum 1 tahun jika gangguan down time 1x24 jam tidak selesai (dalam periode 1 bulan)\n5. Pembayaran awal dilakukan setelah wifi terpasang\n6. Pemasangan di tanggal 1-15 bayar Harga prorate, 16-31 Harga normal untuk satu bulan setengah\n7. Informasi gangguan dan pembayaran: helpdesk (0819-0977-8877), technical support (0852-7854-5456)\n8. Ligat wifi tidak menerima pembayaran selain ke no rekening point 9\n9. No rekening resmi Ligat wifi A/n PT. Jaringan Teknik Indonesia 109 005 557 4545 Bank Mandiri\n10. Pembayaran wifi diluar no. Rekening poin 9 bukan tanggung jawab Ligat");
+
+// Forward nomor untuk notifikasi registrasi
+define('FORWARD_NUMBER', '628117774884');

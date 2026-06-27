@@ -29,6 +29,7 @@ class Bot
         $info = $event['Info'] ?? [];
         $fromMe = $info['IsFromMe'] ?? false;
         $messageType = $info['Type'] ?? '';
+        $mediaType = $info['MediaType'] ?? '';
 
         if ($fromMe) return;
 
@@ -36,11 +37,22 @@ class Bot
         $phone = $this->extractPhone($senderAlt);
         if (!$phone) return;
 
-        // 🔒 Testing: hanya layani nomor 628117774884
-        if ($phone !== '628117774884') return;
+        // Abaikan grup chat
+        if ($info['IsGroup'] ?? false) return;
 
         $message = $event['Message'] ?? [];
-        $mediaType = $info['MediaType'] ?? '';
+
+        // Handle image (foto KTP/Rumah) — cek caption dulu
+        if ($messageType === 'media' && ($mediaType === 'image' || $mediaType === 'photo')) {
+            $caption = $message['imageMessage']['caption'] ?? '';
+            if ($caption) {
+                $this->addHistory($phone, 'user', "[Foto] " . $caption);
+                $this->handleText($phone, $caption);
+            } else {
+                $this->handleImage($phone);
+            }
+            return;
+        }
 
         if ($messageType === 'location' || $mediaType === 'location' || ($messageType === 'media' && isset($message['locationMessage']))) {
             $this->handleLocation($phone, $message['locationMessage']);
@@ -67,6 +79,16 @@ class Bot
         if ($this->ai) {
             $aiResult = $this->generateWithAI($phone, $text, $userState);
             if ($aiResult !== null) {
+                // Simpan data form ke state jika sedang proses registrasi
+                if (in_array($currentState, [STATE_COLLECTING_NAME, STATE_CLOSING])) {
+                    $this->saveFormData($phone, $text);
+                }
+
+                // 🔒 Guard: jangan biarkan AI minta lokasi lagi jika sudah tercover
+                if (in_array($currentState, [STATE_COVERED, STATE_OFFERING, STATE_NOT_COVERED]) && $aiResult['intent'] === 'cek_lokasi') {
+                    $aiResult['intent'] = 'lainnya'; // override
+                }
+
                 // Jika AI intent cek_lokasi, coba geocode dulu sebelum response
                 if ($aiResult['intent'] === 'cek_lokasi' && $this->geocoder) {
                     $coords = $this->geocoder->geocode($text);
@@ -81,6 +103,11 @@ class Bot
                 $this->addHistory($phone, 'bot', $aiResult['response']);
                 $this->sendText($phone, $aiResult['response']);
                 $this->applyIntent($phone, $aiResult['intent'], $currentState);
+
+                // Jika di closing state dan user konfirmasi lengkap, forward data
+                if ($currentState === STATE_CLOSING && $this->isConfirmComplete($text)) {
+                    $this->forwardRegistrasi($phone);
+                }
                 return;
             }
         }
@@ -94,8 +121,7 @@ class Bot
      */
     private function processGeocodedAddress(string $phone, string $text, array $coords): void
     {
-        $msg = "📍 *Alamat:* {$text}\n\n"
-            . "👉 *Sedang mengecek ketersediaan LIGAT* di lokasi tersebut...";
+        $msg = "📍 *{$text}* — sebentar dicek dulu ya kaa...";
         $this->sendText($phone, $msg);
         $this->addHistory($phone, 'bot', $msg);
 
@@ -119,6 +145,7 @@ class Bot
             'name' => $userState['name'] ?? '',
             'location' => $userState['location'] ?? null,
             'covered' => $userState['covered'] ?? null,
+            'registration' => $userState['registration'] ?? [],
             'message' => $text,
             'history' => $history,
         ];
@@ -201,12 +228,12 @@ class Bot
             case 'awaiting_location':
                 // Cek apakah user bilang tidak bisa shareloc
                 if ($this->isCantShareLocation($textLower)) {
-                    $this->sendText($phone, "Baik kaka, kalau gitu coba ketik nama perumahan atau alamat lengkapnya ya, nanti kami cek secara detail");
+                    $this->sendText($phone, "Baik kaka, kalau gitu coba ketik nama perumahan atau alamat lengkapnya ya, nanti saya cek secara detail");
                     break;
                 }
                 // Cek apakah user nanya paket (lokasi belum dicek, ttp minta shareloc)
                 if ($this->isAskingPackage($textLower)) {
-                    $this->sendText($phone, "Boleh minta shareloc atau alamatnya dulu kaa, biar kami cek dulu apakah area kamu tercover. Setelah itu bisa kita bahas paketnya 😊");
+                    $this->sendText($phone, "Boleh minta shareloc atau alamatnya dulu kaa, biar saya cek dulu apakah area kaka tercover. Setelah itu bisa kita bahas paketnya 😊");
                     break;
                 }
                 // Coba geocode jika user ketik alamat
@@ -220,7 +247,7 @@ class Bot
                         break;
                     }
                 }
-                $this->sendText($phone, "Boleh minta shareloc nya kak, agar kami bisa cek secara detail. Atau ketik aja nama daerah/perumahan kamu.");
+                $this->sendText($phone, "Boleh minta shareloc nya kak, biar saya cek secara detail. Atau ketik aja nama daerah/perumahan kaka.");
                 break;
 
             case 'covered':
@@ -254,13 +281,38 @@ class Bot
                 break;
 
             case 'collecting_name':
+                // Jika user kirim data form, simpan dan akui
+                $this->saveFormData($phone, $text);
+                if ($this->isFormData($textLower)) {
+                    $this->sendText($phone, "Baik kaka, data sudah saya catat. Kalau masih ada yang kurang silakan dilengkapi ya 😊");
+                    break;
+                }
                 $this->state->update($phone, ['name' => trim($text)]);
                 $this->sendText($phone, "Terima kasih kaka! Berikut form registrasi LIGAT WiFi:\n\n" . REG_FORM);
                 $this->state->update($phone, ['state' => STATE_CLOSING]);
                 break;
 
             case 'closing':
-                $this->sendText($phone, "Pesan kamu sudah kami terima. Tim LIGAT akan menghubungi kamu segera. Terima kasih 😊");
+                // Cek apakah user kirim foto (KTP/Rumah)
+                if ($this->isPhotoLabel($textLower)) {
+                    $this->sendText($phone, "Baik kaka, foto {$text} sudah tercatat. Kalau ada data lain yang mau dilengkapi silakan 😊");
+                    break;
+                }
+                // Cek apakah user kirim data form (mengandung Nama, Nik, dll)
+                if ($this->isFormData($textLower)) {
+                    $this->sendText($phone, "Baik kaka, data sudah saya catat. Jangan lupa kirimkan juga foto KTP dan foto rumah ya 😊");
+                    break;
+                }
+                // Fallback: serahin ke AI
+                if ($this->ai) {
+                    $aiResult = $this->generateWithAI($phone, $text, $userState);
+                    if ($aiResult !== null && $aiResult['response'] !== null) {
+                        $this->addHistory($phone, 'bot', $aiResult['response']);
+                        $this->sendText($phone, $aiResult['response']);
+                        break;
+                    }
+                }
+                $this->sendText($phone, "Baik kaka, data tambahan sudah dicatat. Silakan lengkapi foto KTP dan foto rumah ya 😊");
                 break;
 
             default:
@@ -274,6 +326,16 @@ class Bot
         // Tapi kita tidak tahu response exact yang dikirim, skip aja
     }
 
+    private function handleImage(string $phone): void
+    {
+        $userState = $this->state->get($phone);
+        if (!$userState || $userState['state'] !== STATE_CLOSING) {
+            return;
+        }
+        $this->sendText($phone, "Baik kaka, foto sudah saya terima. Tapi jangan lupa dikasih caption ya, ini foto KTP atau foto Rumah? 😊");
+        $this->addHistory($phone, 'bot', "Foto diterima, minta keterangan");
+    }
+
     /**
      * Handle location share
      */
@@ -283,7 +345,7 @@ class Bot
         $lng = $location['degreesLongitude'] ?? 0;
 
         if (!$lat || !$lng) {
-            $this->sendText($phone, "Maaf, lokasi tidak terbaca. Coba kirim ulang lokasi kamu.");
+            $this->sendText($phone, "Maaf, lokasi tidak terbaca. Coba kirim ulang lokasi kaka.");
             return;
         }
 
@@ -292,7 +354,7 @@ class Bot
             'state' => STATE_CHECKING_COVERAGE,
         ]);
 
-        $this->sendText($phone, "👉 *Sedang mengecek ketersediaan LIGAT* di lokasi kamu...\n📍 " . $lat . ", " . $lng);
+        $this->sendText($phone, "📍 *Lokasi:* {$lat}, {$lng} — sebentar dicek dulu ya kaa...");
 
         $result = $this->coverage->check($lat, $lng);
 
@@ -303,7 +365,7 @@ class Bot
             ]);
 
             $namaArea = $result['area_name'];
-            $msg = "✅ *Lokasi kamu TERCOVER!*\n\nArea: {$namaArea}\n\nLIGAT tersedia di daerah kamu! 🎉\n\nApakah kamu tertarik untuk berlangganan?";
+            $msg = "✅ *Alhamdulillah* lokasi kaka di *{$namaArea}* tercover LIGAT! 🎉\n\nRencana mau pasang kapan kak?";
             $this->sendText($phone, $msg);
             $this->addHistory($phone, 'bot', $msg);
         } else {
@@ -312,7 +374,7 @@ class Bot
                 'state' => STATE_NOT_COVERED,
             ]);
 
-            $msg = "❌ *Maaf*, lokasi kamu *belum terjangkau* LIGAT saat ini.\n\nKami akan terus memperluas jangkauan. Ada lokasi lain yang ingin dicek?";
+            $msg = "Mohon maaf kaka untuk saat ini lokasi ini belum tercover area LIGAT, tapi kalau kaka mau pasang untuk lokasi/rumah kaka yang lain juga bisa kok ka.";
             $this->sendText($phone, $msg);
             $this->addHistory($phone, 'bot', $msg);
         }
@@ -342,19 +404,19 @@ class Bot
     private function sendGreeting(string $phone): void
     {
         $msg = "👋 *Halo! Selamat datang di LIGAT Internet!*\n\n"
-            . "Kami penyedia layanan internet cepat dan stabil. Ada yang bisa kami bantu?\n\n"
-            . "Ketik: *Cek Lokasi* untuk cek ketersediaan LIGAT di daerah kamu.";
+            . "Saya dari LIGAT penyedia layanan internet cepat dan stabil. Ada yang bisa saya bantu?\n\n"
+            . "Ketik: *Cek Lokasi* untuk cek ketersediaan LIGAT di daerah kaka.";
         $this->sendText($phone, $msg);
     }
 
     private function askLocation(string $phone): void
     {
         $msg = "📍 *Cek Lokasi*\n\n"
-            . "Silakan *share lokasi* kamu dengan cara:\n"
+            . "Silakan *share lokasi* kaka dengan cara:\n"
             . "1. Klik icon *attach* (📎) di samping input chat\n"
             . "2. Pilih *Location*\n"
-            . "3. Kirim lokasi kamu saat ini\n\n"
-            . "Kami akan cek apakah daerah kamu sudah tercover LIGAT!";
+            . "3. Kirim lokasi kaka saat ini\n\n"
+            . "Saya akan cek apakah daerah kaka sudah tercover LIGAT!";
         $this->sendText($phone, $msg);
     }
 
@@ -371,23 +433,56 @@ class Bot
             . "✅ Instalasi gratis\n"
             . "✅ WiFi Router\n"
             . "✅ 24/7 Support\n\n"
-            . "Apakah kamu tertarik dengan salah satu paket di atas?";
+            . "Apa kaka tertarik dengan salah satu paket di atas?";
         $this->sendText($phone, $msg);
     }
 
     private function askName(string $phone): void
     {
-        $this->sendText($phone, "😊 *Bagus!*\n\nSilakan ketik *nama* kamu ya, nanti tim kami akan menghubungi kamu untuk proses pemasangan.");
+        $this->sendText($phone, "😊 *Bagus!*\n\nSilakan ketik *nama* kaka ya, nanti tim kami akan menghubungi kaka untuk proses pemasangan.");
     }
 
     private function closing(string $phone, string $name): void
     {
         $this->sendText($phone, "✨ *Terima kasih, {$name}!*\n\n"
-            . "Data kamu sudah kami terima:\n"
+            . "Data kaka sudah saya terima:\n"
             . "📞 Nomor: {$phone}\n"
             . "👤 Nama: {$name}\n\n"
-            . "Tim LIGAT akan menghubungi kamu *dalam 1x24 jam* untuk proses pemasangan.\n\n"
-            . "Ada lagi yang bisa kami bantu?");
+            . "Tim LIGAT akan menghubungi kaka *dalam 1x24 jam* untuk proses pemasangan.\n\n"
+            . "Ada lagi yang bisa saya bantu?");
+    }
+
+    /**
+     * Forward data registrasi ke nomor sales
+     */
+    private function forwardRegistrasi(string $phone): void
+    {
+        $userState = $this->state->get($phone);
+        if (!$userState) return;
+
+        $loc = $userState['location'] ?? null;
+        $reg = $userState['registration'] ?? [];
+
+        $msg = "📋 *LEAD BARU - REGISTRASI LIGAT*\n"
+             . "👤 Nama: " . ($reg['nama'] ?? '-') . "\n"
+             . "🆔 Nik: " . ($reg['nik'] ?? '-') . "\n"
+             . "📅 TTL: " . ($reg['ttl'] ?? '-') . "\n"
+             . "📍 Alamat: " . ($reg['alamat'] ?? '-') . "\n"
+             . "📧 Email: " . ($reg['email'] ?? '-') . "\n"
+             . "📞 No. WA 1: " . ($reg['no_wa'] ?? $phone) . "\n"
+             . "📞 No. WA 2: " . ($reg['no_wa2'] ?? '-') . "\n"
+             . "📦 Paket: " . ($reg['paket'] ?? '-') . "\n"
+             . "📅 Pasang: " . ($reg['tgl_pasang'] ?? '-') . "\n";
+
+        if ($loc) {
+            $msg .= "🗺️ Lokasi: {$loc['lat']}, {$loc['lng']}\n";
+        }
+        $msg .= "📸 Foto KTP: " . (!empty($reg['foto_ktp']) ? '✅' : '❌') . "\n"
+              . "🏠 Foto Rumah: " . (!empty($reg['foto_rumah']) ? '✅' : '❌') . "\n"
+              . "📍 Sharelok: " . ($loc ? '✅' : '❌') . "\n"
+              . "📅 Waktu: " . date('d/m/Y H:i') . "\n";
+
+        $this->wuzapi->sendText(FORWARD_NUMBER, $msg);
     }
 
     // ─── Helpers ───
@@ -463,5 +558,75 @@ class Bot
             if (strpos($text, $w) !== false) return true;
         }
         return false;
+    }
+
+    private function isPhotoLabel(string $text): bool
+    {
+        $words = ['ktp', 'foto rumah', 'foto ktp', 'foto rumah', 'rumah', 'ktp'];
+        foreach ($words as $w) {
+            if (strpos($text, $w) !== false) return true;
+        }
+        return false;
+    }
+
+    private function isFormData(string $text): bool
+    {
+        $words = ['nama', 'nik', 'ttl', 'alamat', 'email', 'no. wa', 'paket'];
+        $count = 0;
+        foreach ($words as $w) {
+            if (strpos($text, $w) !== false) $count++;
+        }
+        return $count >= 2;
+    }
+
+    private function isConfirmComplete(string $text): bool
+    {
+        $words = ['sudah lengkap', 'lengkap semua', 'sudah semua', 'sudah kak', 'selesai',
+                  'udah lengkap', 'udah semua', 'lengkap kak', 'done'];
+        foreach ($words as $w) {
+            if (strpos($text, $w) !== false) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Parse dan simpan data form registrasi ke state
+     */
+    private function saveFormData(string $phone, string $text): void
+    {
+        $userState = $this->state->get($phone);
+        if (!$userState) return;
+
+        $reg = $userState['registration'] ?? [];
+        $lower = strtolower($text);
+
+        // Deteksi foto dari caption
+        if (strpos($lower, 'ktp') !== false && (strpos($lower, 'foto') !== false || strpos($lower, 'ini') !== false)) {
+            $reg['foto_ktp'] = true;
+        }
+        if (strpos($lower, 'foto rumah') !== false || (strpos($lower, 'rumah') !== false && strpos($lower, 'foto') !== false)) {
+            $reg['foto_rumah'] = true;
+        }
+
+        // Parse data form dari teks
+        $patterns = [
+            'nama' => '/Nama\s*:\s*(.+)/im',
+            'nik' => '/Nik\s*:\s*(.+)/im',
+            'ttl' => '/TTL\s*:\s*(.+)/im',
+            'alamat' => '/Alamat\s*:\s*(.+)/im',
+            'paket' => '/Paket\s*:\s*(.+)/im',
+            'tgl_pasang' => '/tanggal\s*Pasang\s*:\s*(.+)/im',
+            'email' => '/Email\s*:\s*(.+)/im',
+            'no_wa' => '/No\.?\s*wa\s*1?\s*:\s*(.+)/im',
+            'no_wa2' => '/No\.?\s*wa\s*2\s*:\s*(.+)/im',
+        ];
+
+        foreach ($patterns as $key => $pattern) {
+            if (preg_match($pattern, $text, $m)) {
+                $reg[$key] = trim($m[1]);
+            }
+        }
+
+        $this->state->update($phone, ['registration' => $reg]);
     }
 }
