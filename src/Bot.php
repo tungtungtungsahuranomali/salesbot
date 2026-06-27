@@ -63,15 +63,6 @@ class Bot
         // Simpan pesan user ke history
         $this->addHistory($phone, 'user', $text);
 
-        // Jika di state awaiting_location, coba geocode dulu sebelum AI
-        if ($currentState === STATE_AWAITING_LOCATION && $this->geocoder) {
-            $coords = $this->geocoder->geocode($text);
-            if ($coords !== null) {
-                $this->processGeocodedAddress($phone, $text, $coords);
-                return;
-            }
-        }
-
         // Coba AI dulu
         if ($this->ai) {
             $aiResult = $this->generateWithAI($phone, $text, $userState);
@@ -208,18 +199,28 @@ class Bot
                 break;
 
             case 'awaiting_location':
-                // Fallback: coba geocode jika ada
+                // Cek apakah user bilang tidak bisa shareloc
+                if ($this->isCantShareLocation($textLower)) {
+                    $this->sendText($phone, "Baik kaka, kalau gitu coba ketik nama perumahan atau alamat lengkapnya ya, nanti kami cek secara detail");
+                    break;
+                }
+                // Cek apakah user nanya paket (lokasi belum dicek, ttp minta shareloc)
+                if ($this->isAskingPackage($textLower)) {
+                    $this->sendText($phone, "Boleh minta shareloc atau alamatnya dulu kaa, biar kami cek dulu apakah area kamu tercover. Setelah itu bisa kita bahas paketnya 😊");
+                    break;
+                }
+                // Coba geocode jika user ketik alamat
                 if ($this->geocoder) {
                     $coords = $this->geocoder->geocode($text);
                     if ($coords !== null) {
-                        $msg = "📍 *Alamat:* {$text}\n👉 Sedang dicek...";
-                        $this->sendText($phone, $msg);
                         $locData = ['degreesLatitude' => $coords['lat'], 'degreesLongitude' => $coords['lng']];
+                        $msg = "📍 *{$text}* — sebentar dicek dulu ya kaa...";
+                        $this->sendText($phone, $msg);
                         $this->handleLocation($phone, $locData);
                         break;
                     }
                 }
-                $this->sendText($phone, "Silakan *share lokasi* kamu dulu ya agar kami bisa cek ketersediaan layanan LIGAT di daerah kamu.\n\nAtau ketik nama daerah/perumahan kamu.");
+                $this->sendText($phone, "Boleh minta shareloc nya kak, agar kami bisa cek secara detail. Atau ketik aja nama daerah/perumahan kamu.");
                 break;
 
             case 'covered':
@@ -254,7 +255,7 @@ class Bot
 
             case 'collecting_name':
                 $this->state->update($phone, ['name' => trim($text)]);
-                $this->closing($phone, trim($text));
+                $this->sendText($phone, "Terima kasih kaka! Berikut form registrasi LIGAT WiFi:\n\n" . REG_FORM);
                 $this->state->update($phone, ['state' => STATE_CLOSING]);
                 break;
 
@@ -436,6 +437,28 @@ class Bot
     private function isAskOtherArea(string $text): bool
     {
         $words = ['cek lain', 'lokasi lain', 'area lain', 'cek lagi', 'coba lagi', 'lainnya'];
+        foreach ($words as $w) {
+            if (strpos($text, $w) !== false) return true;
+        }
+        return false;
+    }
+
+    private function isCantShareLocation(string $text): bool
+    {
+        $words = ['tidak di rumah', 'lagi tidak di rumah', 'gak di rumah', 'ga di rumah',
+                  'lagi di luar', 'di luar kota', 'tidak bisa share', 'gak bisa share',
+                  'tidak bisa shareloc', 'gak ada di rumah', 'lagi kerja', 'di kantor',
+                  'tidak di tempat', 'belum di rumah', 'masih di luar'];
+        foreach ($words as $w) {
+            if (strpos($text, $w) !== false) return true;
+        }
+        return false;
+    }
+
+    private function isAskingPackage(string $text): bool
+    {
+        $words = ['paket', 'harga', 'berapa', 'biaya', 'mahal', 'murah', 'promo',
+                  'speed', 'kencang', 'cepat', 'mbps', 'kecepatan'];
         foreach ($words as $w) {
             if (strpos($text, $w) !== false) return true;
         }
