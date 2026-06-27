@@ -11,6 +11,8 @@ class Bot
     private ?Geocoder $geocoder;
 
     private const MAX_HISTORY = 6;
+    private const DEBOUNCE_SEC = 5;    // tunggu 5 detik setelah pesan terakhir
+    private const MAX_WAIT_SEC = 15;   // hard limit sejak buffer pertama
 
     public function __construct(WuzAPI $wuzapi, StateManager $state, CoverageChecker $coverage, ?AIClient $ai = null, ?Geocoder $geocoder = null)
     {
@@ -28,40 +30,72 @@ class Bot
     {
         $info = $event['Info'] ?? [];
         $fromMe = $info['IsFromMe'] ?? false;
-        $messageType = $info['Type'] ?? '';
-        $mediaType = $info['MediaType'] ?? '';
-
-        if ($fromMe) return;
+        $isGroup = $info['IsGroup'] ?? false;
+        if ($fromMe || $isGroup) return;
 
         $senderAlt = $info['SenderAlt'] ?? '';
         $phone = $this->extractPhone($senderAlt);
         if (!$phone) return;
 
-        // Abaikan grup chat
-        if ($info['IsGroup'] ?? false) return;
+        // Cek apakah user sudah punya buffer (lagi ngirim banyak pesan)
+        $userState = $this->state->get($phone);
+        $alreadyBuffering = !empty($userState['pending_buffer'] ?? []);
 
-        $message = $event['Message'] ?? [];
+        // Buffer message
+        $this->bufferMessage($phone, $event);
 
-        // Handle image (foto KTP/Rumah) — cek caption dulu
-        if ($messageType === 'media' && ($mediaType === 'image' || $mediaType === 'photo')) {
-            $caption = $message['imageMessage']['caption'] ?? '';
-            if ($caption) {
-                $this->addHistory($phone, 'user', "[Foto] " . $caption);
-                $this->handleText($phone, $caption);
-            } else {
-                $this->handleImage($phone);
+        // Proses buffer lain yang expired
+        $this->processExpiredBuffers();
+
+        // Proses buffer user ini:
+        // - Jika sudah punya buffer sebelumnya → user rapid-fire → tunggu expire
+        // - Jika baru (1 pesan) → langsung proses
+        if (!$alreadyBuffering) {
+            $this->processUserBufferIfExpired($phone, true);
+        } else {
+            $this->processUserBufferIfExpired($phone, false);
+        }
+    }
+
+    /**
+     * Cek & proses buffer user tertentu jika expired
+     */
+    private function processUserBufferIfExpired(string $phone, bool $force): void
+    {
+        $userState = $this->state->get($phone);
+        if (!$userState) return;
+
+        $processAt = $userState['pending_process_at'] ?? null;
+        if ($processAt && $processAt > time() && !$force) return;
+
+        $buffer = $userState['pending_buffer'] ?? [];
+        if (empty($buffer)) return;
+
+        $this->state->update($phone, [
+            'pending_buffer' => [], 'pending_buffer_created' => null, 'pending_process_at' => null,
+        ]);
+
+        // Cek lokasi
+        foreach ($buffer as $b) {
+            if (isset($b['raw']['locationMessage']['degreesLatitude'])) {
+                $this->handleLocation($phone, $b['raw']['locationMessage']);
+                return;
             }
+        }
+
+        // Cek foto tanpa caption
+        $allPhotos = true;
+        foreach ($buffer as $b) {
+            if ($b['type'] !== 'image' && $b['type'] !== 'photo') { $allPhotos = false; break; }
+        }
+        if ($allPhotos && count($buffer) > 0) {
+            $this->handleImage($phone);
             return;
         }
 
-        if ($messageType === 'location' || $mediaType === 'location' || ($messageType === 'media' && isset($message['locationMessage']))) {
-            $this->handleLocation($phone, $message['locationMessage']);
-        } elseif ($messageType === 'text' || $messageType === '') {
-            $text = $this->getText($message);
-            if ($text !== null) {
-                $this->handleText($phone, $text);
-            }
-        }
+        // Gabung text
+        $parts = array_map(fn($b) => $b['summary'], $buffer);
+        $this->handleText($phone, implode("\n", $parts));
     }
 
     /**
@@ -114,6 +148,95 @@ class Bot
 
         // Fallback: rule-based existing
         $this->handleTextFallback($phone, $text, $userState);
+    }
+
+    // ─── Buffer / Debounce ───
+
+    /**
+     * Simpan pesan ke buffer, jangan langsung diproses
+     */
+    private function bufferMessage(string $phone, array $event): void
+    {
+        $userState = $this->state->getOrCreate($phone);
+        $buffer = $userState['pending_buffer'] ?? [];
+        $now = time();
+
+        $info = $event['Info'] ?? [];
+        $message = $event['Message'] ?? [];
+        $msgType = $info['Type'] ?? '';
+        $mediaType = $info['MediaType'] ?? '';
+        $summary = '';
+
+        if ($msgType === 'text' || $msgType === '') {
+            $summary = $this->getText($message) ?? '';
+        } elseif ($mediaType === 'location' || isset($message['locationMessage'])) {
+            $loc = $message['locationMessage'] ?? [];
+            $summary = "[Lokasi] {$loc['degreesLatitude']},{$loc['degreesLongitude']}";
+        } elseif ($mediaType === 'image' || $mediaType === 'photo') {
+            $caption = $message['imageMessage']['caption'] ?? '';
+            $summary = $caption ? "[Foto] $caption" : "[Foto]";
+        }
+        if ($summary === '') return;
+
+        $this->addHistory($phone, 'user', $summary);
+        $buffer[] = ['type' => $msgType === 'text' ? 'text' : ($mediaType ?: $msgType), 'summary' => $summary, 'raw' => $message, 'time' => $now];
+
+        $bufferCreated = $userState['pending_buffer_created'] ?? $now;
+        $processAt = min($now + self::DEBOUNCE_SEC, $bufferCreated + self::MAX_WAIT_SEC);
+
+        $this->state->update($phone, [
+            'pending_buffer' => $buffer,
+            'pending_buffer_created' => $bufferCreated,
+            'pending_process_at' => $processAt,
+        ]);
+    }
+
+    /**
+     * Proses semua buffer yang sudah expired
+     */
+    private function processExpiredBuffers(): void
+    {
+        $files = glob(CONVERSATIONS_DIR . '/*.json');
+        if (!$files) return;
+        $now = time();
+
+        foreach ($files as $file) {
+            $data = json_decode(file_get_contents($file), true);
+            if (!$data) continue;
+
+            $processAt = $data['pending_process_at'] ?? null;
+            if (!$processAt || $processAt > $now) continue;
+
+            $phone = $data['phone'] ?? '';
+            $buffer = $data['pending_buffer'] ?? [];
+            if (empty($buffer)) continue;
+
+            $this->state->update($phone, [
+                'pending_buffer' => [], 'pending_buffer_created' => null, 'pending_process_at' => null,
+            ]);
+
+            // Cek lokasi
+            foreach ($buffer as $b) {
+                if (isset($b['raw']['locationMessage']['degreesLatitude'])) {
+                    $this->handleLocation($phone, $b['raw']['locationMessage']);
+                    return;
+                }
+            }
+
+            // Cek foto tanpa caption
+            $allPhotos = true;
+            foreach ($buffer as $b) {
+                if ($b['type'] !== 'image' && $b['type'] !== 'photo') { $allPhotos = false; break; }
+            }
+            if ($allPhotos && count($buffer) > 0) {
+                $this->handleImage($phone);
+                return;
+            }
+
+            // Gabung text
+            $parts = array_map(fn($b) => $b['summary'], $buffer);
+            $this->handleText($phone, implode("\n", $parts));
+        }
     }
 
     /**
