@@ -605,7 +605,9 @@ class Bot
               . "📍 Sharelok: " . ($loc ? '✅' : '❌') . "\n"
               . "📅 Waktu: " . date('d/m/Y H:i') . "\n";
 
-        $this->wuzapi->sendText(FORWARD_NUMBER, $msg);
+        foreach (FORWARD_NUMBERS as $num) {
+            $this->wuzapi->sendText($num, $msg);
+        }
     }
 
     // ─── Helpers ───
