@@ -1,0 +1,85 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pontianak Kota"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.33, -0.04],
+          [109.36, -0.04],
+          [109.36, -0.01],
+          [109.33, -0.01],
+          [109.33, -0.04]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pontianak Timur"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.36, -0.04],
+          [109.39, -0.04],
+          [109.39, -0.01],
+          [109.36, -0.01],
+          [109.36, -0.04]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pontianak Barat"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.30, -0.04],
+          [109.33, -0.04],
+          [109.33, -0.01],
+          [109.30, -0.01],
+          [109.30, -0.04]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pontianak Utara"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.33, -0.01],
+          [109.36, -0.01],
+          [109.36, 0.02],
+          [109.33, 0.02],
+          [109.33, -0.01]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pontianak Selatan"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [109.33, -0.07],
+          [109.36, -0.07],
+          [109.36, -0.04],
+          [109.33, -0.04],
+          [109.33, -0.07]
+        ]]
+      }
+    }
+  ]
+}

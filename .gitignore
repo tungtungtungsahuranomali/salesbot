@@ -1,0 +1,5 @@
+/data/conversations/
+/data/webhook.log
+/data/ai_error.log
+/data/error.log
+.omo/
