@@ -188,12 +188,14 @@ class Geocoder
         if (preg_match('/\/place\/([^\/]+)/', $redirectUrl, $m)) {
             $placeName = urldecode(str_replace(['+', '%20'], ' ', $m[1]));
             $parts = array_map('trim', explode(',', $placeName));
-            $parts = array_filter($parts, fn($p) => !preg_match('/^\d{5}$/', $p) && !preg_match('/^data=/i', $p));
+            $parts = array_filter($parts, fn($p) => !preg_match('/^\d{5}$/', trim($p)) && !preg_match('/^data=/i', $p));
             $parts = array_values($parts);
 
-            if (count($parts) >= 2) {
-                $q = implode(', ', array_slice($parts, -3));
-                return $this->geocode($q);
+            // Coba dari yang paling spesifik (full) ke generik
+            for ($i = count($parts); $i >= max(2, intval(count($parts) * 0.4)); $i--) {
+                $q = implode(', ', array_slice($parts, 0, $i));
+                $result = $this->geocode($q);
+                if ($result) return $result;
             }
         }
 
