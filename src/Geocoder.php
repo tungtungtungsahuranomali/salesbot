@@ -1,23 +1,26 @@
 <?php
 /**
- * Geocoder — ubah alamat teks ke koordinat via Nominatim API (OpenStreetMap)
+ * Geocoder — ubah alamat teks ke koordinat via Google Geocoding API
  * 
- * Free, no API key needed. Max 1 request per detik (rate limit).
- * Hasil di-cache ke file untuk alamat yang sama.
+ * Primary: Google Geocoding API (akurat, cepat, 40rb req/bln gratis)
+ * Fallback: Nominatim OpenStreetMap (gratis, rate limit 1 req/detik)
+ * Hasil di-cache ke file untuk alamat yang sama (24 jam).
  */
 class Geocoder
 {
     private string $cacheDir;
     private string $userAgent;
-    private float $minRequestInterval = 1.1; // detik antar request
+    private float $minRequestInterval = 1.1; // detik antar request (Nominatim)
+    private ?string $googleApiKey;
 
-    public function __construct(string $cacheDir = '')
+    public function __construct(string $cacheDir = '', ?string $googleApiKey = null)
     {
         $this->cacheDir = $cacheDir ?: (defined('DATA_DIR') ? DATA_DIR . '/geocode_cache' : __DIR__ . '/../data/geocode_cache');
         if (!is_dir($this->cacheDir)) {
             mkdir($this->cacheDir, 0777, true);
         }
         $this->userAgent = 'LIGAT-SalesBot/1.0 (sales@ligat.com)';
+        $this->googleApiKey = $googleApiKey ?: (defined('GOOGLE_GEOCODE_API_KEY') ? GOOGLE_GEOCODE_API_KEY : null);
     }
 
     /**
@@ -33,18 +36,73 @@ class Geocoder
             return $cached;
         }
 
+        // Coba Google Geocoding API dulu
+        if ($this->googleApiKey) {
+            $result = $this->callGoogle($address);
+            if ($result !== null) {
+                $this->saveToCache($cacheKey, $result);
+                return $result;
+            }
+        }
+
+        // Fallback: Nominatim
         $result = $this->callNominatim($address);
         if ($result === null) {
             return null;
         }
 
-        // Simpan ke cache
         $this->saveToCache($cacheKey, $result);
         return $result;
     }
 
     /**
-     * Panggil Nominatim API
+     * Panggil Google Geocoding API
+     */
+    private function callGoogle(string $address): ?array
+    {
+        $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query([
+            'address' => $address . ', Batam, Indonesia',
+            'key' => $this->googleApiKey,
+            'language' => 'id',
+            'region' => 'id',
+        ]);
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_USERAGENT => $this->userAgent,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error || $httpCode !== 200) {
+            $this->logError("Google Geocoding error: $error (HTTP $httpCode)");
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        if (!$data || ($data['status'] ?? '') !== 'OK' || !isset($data['results'][0]['geometry']['location'])) {
+            $status = $data['status'] ?? 'NO_RESULTS';
+            if ($status !== 'ZERO_RESULTS') {
+                $this->logError("Google Geocoding status: $status");
+            }
+            return null;
+        }
+
+        $loc = $data['results'][0]['geometry']['location'];
+        return [
+            'lat' => (float) $loc['lat'],
+            'lng' => (float) $loc['lng'],
+            'display_name' => $data['results'][0]['formatted_address'] ?? '',
+        ];
+    }
+
+    /**
+     * Panggil Nominatim API (fallback)
      */
     private function callNominatim(string $address): ?array
     {
@@ -86,6 +144,60 @@ class Geocoder
             'lng' => (float) $data[0]['lon'],
             'display_name' => $data[0]['display_name'] ?? '',
         ];
+    }
+
+    /**
+     * Extract coordinates from Google Maps URL
+     */
+    public function extractFromGoogleMaps(string $url): ?array
+    {
+        // Ikuti redirect pakai GET untuk dapet URL final
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            CURLOPT_NOBODY => true,
+        ]);
+        curl_exec($ch);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        if (!$redirectUrl) return null;
+
+        // @lat,lng or @lat,lng,zoom
+        if (preg_match('/@(-?[\d\.]+),(-?[\d\.]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
+        }
+        // ?q=lat,lng or ?ll=lat,lng or ?daddr=lat,lng or ?saddr=lat,lng
+        if (preg_match('/[?&](?:q|ll|daddr|saddr|center)=(-?[\d\.]+),(-?[\d\.]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
+        }
+        // !1m5!1m4!1s...!2d106.845!3d-6.214 (Google Maps encoded)
+        if (preg_match('/!2d(-?[\d\.]+)!3d(-?[\d\.]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[2], 'lng' => (float)$m[1]];
+        }
+        // /data=...!3d1.1054!4d103.9835
+        if (preg_match('/!3d(-?[\d\.]+)!4d(-?[\d\.]+)/', $redirectUrl, $m)) {
+            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
+        }
+        // /place/... — geocode nama tempat via Google API
+        if (preg_match('/\/place\/([^\/]+)/', $redirectUrl, $m)) {
+            $placeName = urldecode(str_replace(['+', '%20'], ' ', $m[1]));
+            $parts = array_map('trim', explode(',', $placeName));
+            $parts = array_filter($parts, fn($p) => !preg_match('/^\d{5}$/', $p) && !preg_match('/^data=/i', $p));
+            $parts = array_values($parts);
+
+            if (count($parts) >= 2) {
+                $q = implode(', ', array_slice($parts, -3));
+                return $this->geocode($q);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -133,68 +245,8 @@ class Geocoder
      */
     private function logError(string $msg): void
     {
-        $log = DATA_DIR . '/geocode_error.log';
+        $log = defined('DATA_DIR') ? DATA_DIR . '/geocode_error.log' : __DIR__ . '/../data/geocode_error.log';
         file_put_contents($log, date('c') . ' ' . $msg . "\n", FILE_APPEND);
-    }
-
-    // ─── Google Maps URL Parser ───
-
-    /**
-     * Extract coordinates from Google Maps URL
-     */
-    public function extractFromGoogleMaps(string $url): ?array
-    {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 5,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            CURLOPT_HEADER => true,
-            CURLOPT_NOBODY => true,
-        ]);
-        $response = curl_exec($ch);
-        $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        curl_close($ch);
-
-        if (!$redirectUrl) return null;
-
-        // @lat,lng or @lat,lng,zoom
-        if (preg_match('/@([\d\.\-]+),([\d\.\-]+)/', $redirectUrl, $m)) {
-            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
-        }
-        // ?q=lat,lng or ?ll=lat,lng
-        if (preg_match('/[?&](?:q|ll)=([\d\.\-]+),([\d\.\-]+)/', $redirectUrl, $m)) {
-            return ['lat' => (float)$m[1], 'lng' => (float)$m[2]];
-        }
-        // Format: /place/.../data=... (extract place name and geocode)
-        if (preg_match('/\/place\/([^\/]+)/', $redirectUrl, $m)) {
-            $placeName = urldecode(str_replace(['+', '%20'], ' ', $m[1]));
-            // Ambil bagian yang lebih sederhana: setelah koma ke-2 atau ke-3
-            $parts = array_map('trim', explode(',', $placeName));
-            $parts = array_filter($parts, fn($p) => !preg_match('/^\d{5}$/', $p) && !preg_match('/^data=/i', $p));
-            $parts = array_values($parts);
-            // Coba kombinasi: bagian terakhir yang masuk akal
-            $queries = [
-                implode(', ', array_slice($parts, -3)), // Kec. Sekupang, Kota Batam
-                implode(', ', array_slice($parts, -2)), // Kota Batam
-            ];
-            foreach ($queries as $q) {
-                if (preg_match('/batam|sekupang|nongsa|lubuk|bengkong|seibeduk|batuampar|galang|bulang|belakangpadang/i', $q)) {
-                    $result = $this->geocode($q);
-                    if ($result) return $result;
-                }
-            }
-            // Fallback: ambil 2 bagian terakhir yang mengandung lokasi
-            for ($i = count($parts) - 1; $i >= 0; $i--) {
-                $q = $parts[$i] . ', Batam';
-                $result = $this->geocode($q);
-                if ($result) return $result;
-            }
-        }
-        return null;
     }
 
     /**
