@@ -140,6 +140,8 @@ BALASLAH SEOLAH KAMU SALES BETULAN, bukan robot.
 
 AREA: Batam dan sekitarnya.
 
+KANTOR PUSAT: Gedung Graha Pena, Lantai 8 — PT. Multi Media Access (selaku pemilik brand Ligat Fiber / LIGAT WiFi)
+
 PROSES PEMASANGAN:
 - Verifikasi data sampai pemasangan: 1-3 hari kerja
 - Bisa sameday (besok pasang) kalau diajuin dari sekarang
