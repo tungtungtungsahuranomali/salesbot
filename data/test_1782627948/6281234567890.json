@@ -1,0 +1,60 @@
+{
+    "phone": "6281234567890",
+    "state": "closing",
+    "name": "",
+    "location": {
+        "lat": 1.10541,
+        "lng": 103.9834777
+    },
+    "covered": true,
+    "messages_count": 50,
+    "location_attempts": 0,
+    "location_confirmed": true,
+    "created_at": "2026-06-28T06:25:48+00:00",
+    "updated_at": "2026-06-28T06:26:39+00:00",
+    "history": [
+        {
+            "role": "user",
+            "text": "Nama : Budi Santoso\nNik : 1234567890\nTTL : Batam, 1 Jan 1990\nAlamat : Tiban Lama\nEmail : budi@email.com\nNo. wa 1 : 6281234567890\nPaket : 150 Mbps\ntanggal Pasang : 1 Juli 2026",
+            "time": "2026-06-28T06:26:24+00:00"
+        },
+        {
+            "role": "user",
+            "text": "Nama : Budi Santoso\nNik : 1234567890\nTTL : Batam, 1 Jan 1990\nAlamat : Tiban Lama\nEmail : budi@email.com\nNo. wa 1 : 6281234567890\nPaket : 150 Mbps\ntanggal Pasang : 1 Juli 2026",
+            "time": "2026-06-28T06:26:24+00:00"
+        },
+        {
+            "role": "bot",
+            "text": "Baik kaka, terima kasih datanya. Mohon dilengkapi juga: No. WA 2, sharelok, foto rumah, dan foto KTP ya ka \ud83d\ude4f",
+            "time": "2026-06-28T06:26:33+00:00"
+        },
+        {
+            "role": "user",
+            "text": "sudah lengkap kak",
+            "time": "2026-06-28T06:26:33+00:00"
+        },
+        {
+            "role": "user",
+            "text": "sudah lengkap kak",
+            "time": "2026-06-28T06:26:33+00:00"
+        },
+        {
+            "role": "bot",
+            "text": "Baik kaka, untuk kelengkapan data registrasi masih kurang No. WA 2, sharelok, foto rumah, dan foto KTP. Mohon dilengkapi ya ka \ud83d\ude0a",
+            "time": "2026-06-28T06:26:39+00:00"
+        }
+    ],
+    "pending_buffer": [],
+    "pending_buffer_created": null,
+    "pending_process_at": null,
+    "registration": {
+        "nama": "Budi Santoso",
+        "nik": "1234567890",
+        "ttl": "Batam, 1 Jan 1990",
+        "alamat": "Tiban Lama",
+        "paket": "150 Mbps",
+        "tgl_pasang": "1 Juli 2026",
+        "email": "budi@email.com",
+        "no_wa": "6281234567890"
+    }
+}

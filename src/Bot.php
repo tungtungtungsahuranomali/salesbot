@@ -492,6 +492,8 @@ class Bot
                 break;
 
             case 'closing':
+                // Simpan data form jika ada
+                $this->saveFormData($phone, $text);
                 // Cek apakah user kirim foto (KTP/Rumah)
                 if ($this->isPhotoLabel($textLower)) {
                     $this->sendText($phone, "Baik kaka, foto {$text} sudah tercatat. Kalau ada data lain yang mau dilengkapi silakan 😊");
@@ -724,7 +726,8 @@ class Bot
     private function isInterested(string $text): bool
     {
         $words = ['mau', 'tertarik', 'iya', 'ya', 'yes', 'bisa', 'ambil', 'daftar',
-                  'pasang', 'berlangganan', 'saya mau', 'bagus', 'info', 'lanjut'];
+                  'pasang', 'berlangganan', 'saya mau', 'bagus', 'info', 'lanjut',
+                  'mbps', 'kecepatan', 'speed'];
         foreach ($words as $w) {
             if (strpos($text, $w) !== false) return true;
         }

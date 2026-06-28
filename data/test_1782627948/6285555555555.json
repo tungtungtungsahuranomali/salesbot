@@ -1,0 +1,42 @@
+{
+    "phone": "6285555555555",
+    "state": "greeting",
+    "name": "",
+    "location": null,
+    "covered": null,
+    "messages_count": 10,
+    "location_attempts": 0,
+    "location_confirmed": false,
+    "created_at": "2026-06-28T06:26:49+00:00",
+    "updated_at": "2026-06-28T06:26:52+00:00",
+    "history": [
+        {
+            "role": "user",
+            "text": "halo",
+            "time": "2026-06-28T06:26:49+00:00"
+        },
+        {
+            "role": "user",
+            "text": "halo",
+            "time": "2026-06-28T06:26:49+00:00"
+        },
+        {
+            "role": "bot",
+            "text": "Halo kaka! Ada yang bisa saya bantu? \ud83d\ude0a",
+            "time": "2026-06-28T06:26:52+00:00"
+        },
+        {
+            "role": "user",
+            "text": "cek lokasi",
+            "time": "2026-06-28T06:26:52+00:00"
+        },
+        {
+            "role": "user",
+            "text": "cek lokasi",
+            "time": "2026-06-28T06:26:52+00:00"
+        }
+    ],
+    "pending_buffer": [],
+    "pending_buffer_created": null,
+    "pending_process_at": null
+}
