@@ -229,6 +229,53 @@ class Bot
         ]);
     }
 
+    /**
+     * Proses semua buffer yang sudah expired
+     */
+    private function processExpiredBuffers(): void
+    {
+        $files = glob(CONVERSATIONS_DIR . '/*.json');
+        if (!$files) return;
+        $now = time();
+
+        foreach ($files as $file) {
+            $data = json_decode(file_get_contents($file), true);
+            if (!$data) continue;
+
+            $processAt = $data['pending_process_at'] ?? null;
+            if (!$processAt || $processAt > $now) continue;
+
+            $phone = $data['phone'] ?? '';
+            $buffer = $data['pending_buffer'] ?? [];
+            if (empty($buffer)) continue;
+
+            $this->state->update($phone, [
+                'pending_buffer' => [], 'pending_buffer_created' => null, 'pending_process_at' => null,
+            ]);
+
+            // Cek lokasi
+            foreach ($buffer as $b) {
+                if (isset($b['raw']['locationMessage']['degreesLatitude'])) {
+                    $this->handleLocation($phone, $b['raw']['locationMessage']);
+                    return;
+                }
+            }
+
+            // Cek foto tanpa caption
+            $allPhotos = true;
+            foreach ($buffer as $b) {
+                if ($b['type'] !== 'image' && $b['type'] !== 'photo') { $allPhotos = false; break; }
+            }
+            if ($allPhotos && count($buffer) > 0) {
+                $this->handleImage($phone);
+                return;
+            }
+
+            // Gabung text
+            $parts = array_map(fn($b) => $b['summary'], $buffer);
+            $this->handleText($phone, implode("\n", $parts));
+        }
+    }
 
     /**
      * Proses alamat yang berhasil di-geocode
