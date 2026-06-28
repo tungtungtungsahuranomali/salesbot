@@ -137,9 +137,13 @@ class Bot
                     $this->saveFormData($phone, $text);
                 }
 
-                // 🔒 Guard: jangan biarkan AI minta lokasi lagi jika sudah tercover
-                if (in_array($currentState, [STATE_COVERED, STATE_OFFERING, STATE_NOT_COVERED]) && $aiResult['intent'] === 'cek_lokasi') {
-                    $aiResult['intent'] = 'lainnya'; // override
+                // 🔓 Jika AI intent cek_lokasi dari state yang sudah punya lokasi,
+                // berarti user minta ganti lokasi — reset dan biarkan AI handling
+                if ($aiResult['intent'] === 'cek_lokasi' && $this->isPostLocationState($currentState)) {
+                    $this->resetLocation($phone);
+                    $this->addHistory($phone, 'bot', $aiResult['response']);
+                    $this->sendText($phone, $aiResult['response']);
+                    return;
                 }
 
                 // Jika AI intent cek_lokasi, coba geocode dulu sebelum response
@@ -326,12 +330,17 @@ class Bot
     {
         switch ($intent) {
             case 'cek_lokasi':
-                $this->state->update($phone, ['state' => STATE_AWAITING_LOCATION]);
+                if ($this->isPostLocationState($currentState)) {
+                    // User minta ganti lokasi dari state yang sudah punya lokasi
+                    $this->resetLocation($phone);
+                } else {
+                    $this->state->update($phone, ['state' => STATE_AWAITING_LOCATION]);
+                }
                 break;
 
             case 'tertarik':
                 if ($currentState === STATE_COVERED) {
-                    $this->state->update($phone, ['state' => STATE_OFFERING]);
+                    $this->state->update($phone, ['state' => STATE_OFFERING, 'location_confirmed' => true]);
                 } elseif ($currentState === STATE_OFFERING) {
                     $this->state->update($phone, ['state' => STATE_COLLECTING_NAME]);
                 }
@@ -347,7 +356,7 @@ class Bot
 
             case 'tanya_paket':
                 if ($currentState === STATE_COVERED) {
-                    $this->state->update($phone, ['state' => STATE_OFFERING]);
+                    $this->state->update($phone, ['state' => STATE_OFFERING, 'location_confirmed' => true]);
                 }
                 break;
 
@@ -431,9 +440,14 @@ class Bot
                 break;
 
             case 'covered':
+                if ($this->isAskOtherArea($textLower)) {
+                    $this->resetLocation($phone);
+                    $this->askLocation($phone);
+                    break;
+                }
                 if ($this->isInterested($textLower)) {
                     $this->offerPackages($phone);
-                    $this->state->update($phone, ['state' => STATE_OFFERING]);
+                    $this->state->update($phone, ['state' => STATE_OFFERING, 'location_confirmed' => true]);
                 } else {
                     $this->sendText($phone, "Baik, kalau butuh bantuan nanti hubungi lagi ya 😊");
                     $this->state->update($phone, ['state' => STATE_START]);
@@ -451,6 +465,11 @@ class Bot
                 break;
 
             case 'offering':
+                if ($this->isAskOtherArea($textLower)) {
+                    $this->resetLocation($phone);
+                    $this->askLocation($phone);
+                    break;
+                }
                 if ($this->isInterested($textLower)) {
                     $this->askName($phone);
                     $this->state->update($phone, ['state' => STATE_COLLECTING_NAME]);
@@ -714,7 +733,8 @@ class Bot
 
     private function isAskOtherArea(string $text): bool
     {
-        $words = ['cek lain', 'lokasi lain', 'area lain', 'cek lagi', 'coba lagi', 'lainnya'];
+        $words = ['cek lain', 'lokasi lain', 'area lain', 'cek lagi', 'coba lagi', 'lainnya',
+                  'ganti lokasi', 'ganti alamat', 'pindah', 'lokasi baru'];
         foreach ($words as $w) {
             if (strpos($text, $w) !== false) return true;
         }
@@ -811,5 +831,26 @@ class Bot
         }
 
         $this->state->update($phone, ['registration' => $reg]);
+    }
+
+    /**
+     * Cek apakah state sudah melewati tahap lokasi
+     */
+    private function isPostLocationState(string $state): bool
+    {
+        return in_array($state, [STATE_COVERED, STATE_OFFERING, STATE_NOT_COVERED]);
+    }
+
+    /**
+     * Reset data lokasi user (pindah/ganti lokasi)
+     */
+    private function resetLocation(string $phone): void
+    {
+        $this->state->update($phone, [
+            'location' => null,
+            'covered' => null,
+            'location_confirmed' => false,
+            'state' => STATE_AWAITING_LOCATION,
+        ]);
     }
 }

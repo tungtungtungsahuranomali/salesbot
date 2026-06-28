@@ -50,6 +50,7 @@ class StateManager
             'covered' => null,
             'messages_count' => 0,
             'location_attempts' => 0,
+            'location_confirmed' => false,
             'created_at' => date('c'),
             'updated_at' => date('c'),
         ];
