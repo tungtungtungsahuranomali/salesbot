@@ -13,6 +13,7 @@ class Bot
     private const MAX_HISTORY = 6;
     private const DEBOUNCE_SEC = 5;    // tunggu 5 detik setelah pesan terakhir
     private const MAX_WAIT_SEC = 15;   // hard limit sejak buffer pertama
+    private const MAX_LOCATION_ATTEMPTS = 2; // max gagal cek lokasi sebelum arahkan ke helpdesk
 
     public function __construct(WuzAPI $wuzapi, StateManager $state, CoverageChecker $coverage, ?AIClient $ai = null, ?Geocoder $geocoder = null)
     {
@@ -145,8 +146,24 @@ class Bot
                 if ($aiResult['intent'] === 'cek_lokasi' && $this->geocoder) {
                     $coords = $this->geocoder->geocode($text);
                     if ($coords !== null) {
+                        // Reset attempts jika berhasil
+                        $this->state->update($phone, ['location_attempts' => 0]);
                         // Geocode berhasil, langsung cek coverage — skip AI response
                         $this->processGeocodedAddress($phone, $text, $coords);
+                        return;
+                    }
+                    // Geocode gagal — increment attempts
+                    $attempts = ($userState['location_attempts'] ?? 0) + 1;
+                    $this->state->update($phone, ['location_attempts' => $attempts]);
+                    if ($attempts > self::MAX_LOCATION_ATTEMPTS) {
+                        // Limit tercapai — arahkan ke helpdesk
+                        $this->state->update($phone, [
+                            'location_attempts' => 0,
+                            'state' => STATE_START,
+                        ]);
+                        $helpMsg = "Maaf kaka, sepertinya saya tidak bisa menemukan lokasi kaka. Silakan hubungi helpdesk kami di 0819-0977-8877 untuk bantuan lebih lanjut ya 🙏";
+                        $this->sendText($phone, $helpMsg);
+                        $this->addHistory($phone, 'bot', $helpMsg);
                         return;
                     }
                 }
@@ -351,6 +368,7 @@ class Bot
     {
         $currentState = $userState['state'];
         $textLower = trim(strtolower($text));
+        $attempts = $userState['location_attempts'] ?? 0;
 
         switch ($currentState) {
             case 'start':
@@ -369,6 +387,14 @@ class Bot
                 break;
 
             case 'awaiting_location':
+                // Limit lokasi — arahkan ke helpdesk
+                if ($attempts > self::MAX_LOCATION_ATTEMPTS) {
+                    $this->state->update($phone, ['location_attempts' => 0, 'state' => STATE_START]);
+                    $helpMsg = "Maaf kaka, sepertinya saya tidak bisa menemukan lokasi kaka. Silakan hubungi helpdesk kami di 0819-0977-8877 untuk bantuan lebih lanjut ya 🙏";
+                    $this->sendText($phone, $helpMsg);
+                    $this->addHistory($phone, 'bot', $helpMsg);
+                    break;
+                }
                 // Cek apakah user bilang tidak bisa shareloc
                 if ($this->isCantShareLocation($textLower)) {
                     $this->sendText($phone, "Baik kaka, kalau gitu coba ketik nama perumahan atau alamat lengkapnya ya, nanti saya cek secara detail");
@@ -383,12 +409,23 @@ class Bot
                 if ($this->geocoder) {
                     $coords = $this->geocoder->geocode($text);
                     if ($coords !== null) {
+                        $this->state->update($phone, ['location_attempts' => 0]);
                         $locData = ['degreesLatitude' => $coords['lat'], 'degreesLongitude' => $coords['lng']];
                         $msg = "📍 *{$text}* — sebentar dicek dulu ya kaa...";
                         $this->sendText($phone, $msg);
                         $this->handleLocation($phone, $locData);
                         break;
                     }
+                }
+                // Geocode gagal — increment attempts
+                $newAttempts = $attempts + 1;
+                $this->state->update($phone, ['location_attempts' => $newAttempts]);
+                if ($newAttempts > self::MAX_LOCATION_ATTEMPTS) {
+                    $this->state->update($phone, ['location_attempts' => 0, 'state' => STATE_START]);
+                    $helpMsg = "Maaf kaka, sepertinya saya tidak bisa menemukan lokasi kaka. Silakan hubungi helpdesk kami di 0819-0977-8877 untuk bantuan lebih lanjut ya 🙏";
+                    $this->sendText($phone, $helpMsg);
+                    $this->addHistory($phone, 'bot', $helpMsg);
+                    break;
                 }
                 $this->sendText($phone, "Boleh minta shareloc nya kak, biar saya cek secara detail. Atau ketik aja nama daerah/perumahan kaka.");
                 break;
@@ -495,6 +532,7 @@ class Bot
         $this->state->update($phone, [
             'location' => ['lat' => $lat, 'lng' => $lng],
             'state' => STATE_CHECKING_COVERAGE,
+            'location_attempts' => 0,
         ]);
 
         $this->sendText($phone, "📍 *Lokasi:* {$lat}, {$lng} — sebentar dicek dulu ya kaa...");

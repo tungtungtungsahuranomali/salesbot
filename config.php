@@ -4,7 +4,7 @@
  */
 
 define('WUZAPI_BASE', 'http://202.8.28.198:3000');
-define('BOT_TOKEN', 'pakjati');
+define('BOT_TOKEN', 'waabba');
 define('BOT_NAME', 'LIGAT Sales Bot');
 
 // State machine

@@ -49,6 +49,7 @@ class StateManager
             'location' => null,
             'covered' => null,
             'messages_count' => 0,
+            'location_attempts' => 0,
             'created_at' => date('c'),
             'updated_at' => date('c'),
         ];
