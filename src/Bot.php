@@ -508,7 +508,7 @@ class Bot
             ]);
 
             $namaArea = $result['area_name'];
-            $msg = "✅ *Alhamdulillah* lokasi kaka di *{$namaArea}* tercover LIGAT! 🎉\n\nRencana mau pasang kapan kak?";
+            $msg = "✅ Lokasi kaka di *{$namaArea}* tercover LIGAT! 🎉\n\nRencana mau pasang kapan kak?";
             $this->sendText($phone, $msg);
             $this->addHistory($phone, 'bot', $msg);
         } else {
