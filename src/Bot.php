@@ -134,16 +134,34 @@ class Bot
                     $this->saveFormData($phone, $text);
                 }
 
-                // 🔓 Jika AI intent cek_lokasi dari state yang sudah punya lokasi,
-                // berarti user minta ganti lokasi — reset dan biarkan AI handling
+                // 🔓 Selective guard: cek_lokasi dari post-location states
                 if ($aiResult['intent'] === 'cek_lokasi' && $this->isPostLocationState($currentState)) {
-                    $this->resetLocation($phone);
-                    $this->addHistory($phone, 'bot', $aiResult['response']);
-                    $this->sendText($phone, $aiResult['response']);
+                    $textLower = trim(strtolower($text));
+                    if ($this->isAskOtherArea($textLower)) {
+                        // User minta ganti lokasi — reset dan biarkan AI handling
+                        $this->resetLocation($phone);
+                        $this->addHistory($phone, 'bot', $aiResult['response']);
+                        $this->sendText($phone, $aiResult['response']);
+                        return;
+                    }
+                    // AI salah deteksi — jangan kirim response AI (dia minta lokasi),
+                    // kirim fallback sesuai state
+                    $fallback = $this->postLocationFallback($currentState);
+                    $this->addHistory($phone, 'bot', $fallback);
+                    $this->sendText($phone, $fallback);
                     return;
                 }
 
-                // Jika AI intent cek_lokasi, coba geocode dulu sebelum response
+                // Jika AI intent cek_lokasi dari start/greeting — jangan geocode,
+                // langsung applyIntent ke awaiting_location
+                if ($aiResult['intent'] === 'cek_lokasi' && !$this->isPostLocationState($currentState)) {
+                    $this->addHistory($phone, 'bot', $aiResult['response']);
+                    $this->sendText($phone, $aiResult['response']);
+                    $this->applyIntent($phone, $aiResult['intent'], $currentState);
+                    return;
+                }
+
+                // Jika AI intent cek_lokasi lainnya (awaiting_location) — coba geocode
                 if ($aiResult['intent'] === 'cek_lokasi' && $this->geocoder) {
                     $coords = $this->geocoder->geocode($text);
                     if ($coords !== null) {
@@ -695,6 +713,27 @@ class Bot
             if (strpos($text, $w) !== false) return true;
         }
         return false;
+    }
+
+    /**
+     * Fallback response ketika AI salah deteksi cek_lokasi di post-location state
+     */
+    private function postLocationFallback(string $state): string
+    {
+        switch ($state) {
+            case STATE_COVERED:
+                return "Rencana mau pasang kapan kak? 😊";
+            case STATE_NOT_COVERED:
+                return "Ada lokasi lain yang mau dicek? 😊";
+            case STATE_OFFERING:
+                $paketList = "";
+                foreach (PAKET as $speed => $price) {
+                    $paketList .= "• *{$speed}* — {$price}\n";
+                }
+                return "📡 *Paket Internet LIGAT*\n\n{$paketList}\nSemua paket sudah include instalasi gratis, WiFi Router, dan 24/7 Support. Ada yang ditanyakan? 😊";
+            default:
+                return "Ada yang bisa saya bantu? 😊";
+        }
     }
 
     private function isCantShareLocation(string $text): bool
