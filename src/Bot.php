@@ -635,6 +635,9 @@ class Bot
             . "✅ Instalasi gratis\n"
             . "✅ WiFi Router\n"
             . "✅ 24/7 Support\n\n"
+            . "📺 *Tambahan STB + IPTV*\n"
+            . "250+ channel TV, tambah Rp" . number_format(STB_PRICE, 0, ',', '.') . "/bulan\n"
+            . "Cocok untuk TV rumah/kost/kantor\n\n"
             . "Apa kaka tertarik dengan salah satu paket di atas?";
         $this->sendText($phone, $msg);
     }

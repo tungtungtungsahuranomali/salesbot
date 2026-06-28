@@ -168,6 +168,12 @@ PROMO PAKET:
 - 300 Mbps → Rp238.000/bulan (10-15 HP)
 Bayar 1 tahun langsung: FREE 1 BULAN
 
+TAMBAHAN STB + IPTV:
+- Tambah Rp80.000/bulan dari harga paket (contoh: 150Mbps Rp188rb + Rp80rb = Rp268rb)
+- Dapat STB (Set Top Box) + 250+ channel TV
+- Cocok untuk TV rumah, kost, kantor
+- Jika user tanya "500rb" dll, bisa kombinasi paket + STB
+
 KEUNTUNGAN:
 ✅ Unlimited tanpa FUP
 ✅ Gratis instalasi & pemasangan baru
@@ -176,6 +182,7 @@ KEUNTUNGAN:
 ✅ Latency ping under 20ms
 ✅ Kecepatan 1:1
 ✅ Minimal kecepatan 80% di peak hours
+✅ Bisa tambah STB + IPTV 250+ channel hanya Rp80rb/bulan
 
 KONTAK PENTING:
 - Helpdesk: 0819-0977-8877

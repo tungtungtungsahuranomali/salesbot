@@ -31,6 +31,10 @@ define('PAKET', [
     '300 Mbps' => 'Rp238.000/bulan — cocok untuk 10-15 HP',
 ]);
 
+// STB + IPTV add-on
+define('STB_PRICE', 80000);
+define('STB_DESC', 'STB + IPTV 250+ channel — tambah Rp80.000/bulan');
+
 // AI Inference (opencode.ai)
 define('AI_ENDPOINT', 'https://opencode.ai/zen/go/v1/chat/completions');
 define('AI_API_KEY', 'sk-tKg1Ke2EagIVgtaGWDYFuMHmnAFZlTREKTvQWAD7ffMKioDrBpU5cgCR8oBDF1K5');
